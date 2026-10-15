@@ -15,6 +15,8 @@ function createLimiter(opts: RateLimitOptions) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const userId = (req as any).user?.userId;
+    const isLoopback = ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1';
+    const effectiveMax = config.app.isDev && isLoopback ? opts.max * 10 : opts.max;
     const key = `${opts.keyPrefix}:${userId || ip}`;
     const windowSec = Math.ceil(opts.windowMs / 1000);
 
@@ -25,11 +27,11 @@ function createLimiter(opts: RateLimitOptions) {
       const results = await pipeline.exec();
       const count = (results?.[0]?.[1] as number) || 1;
 
-      res.setHeader('X-RateLimit-Limit', opts.max);
-      res.setHeader('X-RateLimit-Remaining', Math.max(0, opts.max - count));
+      res.setHeader('X-RateLimit-Limit', effectiveMax);
+      res.setHeader('X-RateLimit-Remaining', Math.max(0, effectiveMax - count));
       res.setHeader('X-RateLimit-Reset', Math.ceil(Date.now() / 1000) + windowSec);
 
-      if (count > opts.max) {
+      if (count > effectiveMax) {
         res.setHeader('Retry-After', windowSec);
         next(new AppError(opts.message || 'Too many requests, please try again later', 429));
         return;
