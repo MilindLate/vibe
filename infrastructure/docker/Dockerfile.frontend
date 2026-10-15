@@ -1,0 +1,42 @@
+# ─── Build Stage ─────────────────────────────────────────────────────────────
+FROM node:20-alpine AS build
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY . .
+RUN npm run build
+
+# ─── Production Stage (served by Nginx) ──────────────────────────────────────
+FROM nginx:alpine AS production
+
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Custom nginx config for SPA (handles React Router)
+RUN cat > /etc/nginx/conf.d/default.conf << 'EOF'
+server {
+    listen 80;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Cache static assets
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|otf)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    # All routes fallback to index.html for SPA routing
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
+}
+EOF
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s \
+  CMD wget -qO- http://localhost:80/ || exit 1

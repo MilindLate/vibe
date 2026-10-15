@@ -1,0 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: #000;
+  color: #fff;
+  overflow-x: hidden;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #1C1C1C; }
+::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #888; }
+
+/* Video feed snap scrolling */
+.video-feed {
+  height: 100dvh;
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+}
+.video-feed::-webkit-scrollbar { display: none; }
+
+.video-card {
+  height: 100dvh;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  position: relative;
+}
+
+/* Shimmer skeleton */
+.shimmer {
+  background: linear-gradient(90deg, #1C1C1C 25%, #2F2F2F 50%, #1C1C1C 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+/* Music disc rotation */
+.music-disc {
+  animation: spin 8s linear infinite;
+}
+.music-disc.paused {
+  animation-play-state: paused;
+}
+
+/* Like heart animation */
+@keyframes heartPop {
+  0% { transform: scale(0) rotate(-30deg); opacity: 1; }
+  60% { transform: scale(1.6) rotate(10deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 0; }
+}
+.heart-pop { animation: heartPop 0.7s ease-out forwards; }
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Video gradient overlay */
+.video-gradient {
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.3) 40%,
+    transparent 70%
+  );
+}
+
+/* Safe area for mobile */
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0); }
+.safe-top { padding-top: env(safe-area-inset-top, 0); }
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary text-white font-semibold px-6 py-2 rounded-full
+           hover:bg-primary-hover active:scale-95 transition-all duration-150;
+  }
+  .btn-outline {
+    @apply border border-white/30 text-white font-semibold px-6 py-2 rounded-full
+           hover:bg-white/10 active:scale-95 transition-all duration-150;
+  }
+  .input-field {
+    @apply w-full bg-vibe-card border border-vibe-border rounded-lg px-4 py-3
+           text-white placeholder-gray-500 focus:outline-none focus:border-white/50
+           transition-colors duration-150;
+  }
+  .card {
+    @apply bg-vibe-card rounded-xl border border-vibe-border;
+  }
+}
+
+/* Marquee (music ticker) */
+@keyframes marquee {
+  0%   { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 8s linear infinite;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+/* Ensure video-card height for dvh fallback */
+@supports not (height: 100dvh) {
+  .video-card { height: 100vh; }
+  .video-feed  { height: 100vh; }
+}

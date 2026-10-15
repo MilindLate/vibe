@@ -1,0 +1,438 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  CREATOR
+  MODERATOR
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+  DELETED
+}
+
+enum VideoStatus {
+  PROCESSING
+  ACTIVE
+  REMOVED
+  PRIVATE
+  FAILED
+}
+
+enum PrivacyLevel {
+  PUBLIC
+  FOLLOWERS
+  PRIVATE
+}
+
+enum FollowStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+enum NotificationType {
+  LIKE
+  COMMENT
+  FOLLOW
+  FOLLOW_REQUEST
+  MENTION
+  DUET
+  STITCH
+  SYSTEM
+}
+
+enum ReportReason {
+  SPAM
+  HARASSMENT
+  HATE_SPEECH
+  VIOLENCE
+  NUDITY
+  MISINFORMATION
+  COPYRIGHT
+  OTHER
+}
+
+enum ReportStatus {
+  PENDING
+  UNDER_REVIEW
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportTargetType {
+  VIDEO
+  USER
+  COMMENT
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id             String     @id @default(cuid())
+  username       String     @unique @db.VarChar(30)
+  email          String     @unique
+  passwordHash   String
+  displayName    String     @db.VarChar(50)
+  bio            String?    @db.VarChar(300)
+  avatarUrl      String?
+  coverUrl       String?
+  isVerified     Boolean    @default(false)
+  isPrivate      Boolean    @default(false)
+  emailVerified  Boolean    @default(false)
+  role           UserRole   @default(USER)
+  status         UserStatus @default(ACTIVE)
+
+  // Denormalized counters (updated atomically via Redis + sync)
+  followersCount Int @default(0)
+  followingCount Int @default(0)
+  likesCount     Int @default(0)
+  videosCount    Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  videos                  Video[]
+  comments                Comment[]
+  likes                   Like[]
+  following               Follow[]              @relation("Follower")
+  followers               Follow[]              @relation("Following")
+  sentMessages            Message[]
+  notifications           Notification[]        @relation("NotificationTarget")
+  actorNotifications      Notification[]        @relation("NotificationActor")
+  reports                 Report[]              @relation("Reporter")
+  reportedContent         Report[]              @relation("ReviewedBy")
+  blockedUsers            UserBlock[]           @relation("Blocker")
+  blockedByUsers          UserBlock[]           @relation("Blocked")
+  videoViews              VideoView[]
+  interests               UserInterest[]
+  deviceTokens            DeviceToken[]
+  conversationParticipants ConversationParticipant[]
+
+  @@index([username])
+  @@index([email])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model Video {
+  id          String      @id @default(cuid())
+  userId      String
+  title       String      @db.VarChar(150)
+  description String?     @db.VarChar(2200)
+  videoUrl    String      // Original upload URL
+  hlsUrl      String?     // HLS master playlist URL
+  thumbnailUrl String?
+  duration    Float       // seconds
+  width       Int?
+  height      Int?
+  fileSize    BigInt?
+  format      String?
+
+  // Quality variants (stored as JSON)
+  qualities   Json?       // { "360p": "url", "720p": "url", ... }
+
+  status      VideoStatus @default(PROCESSING)
+  privacyLevel PrivacyLevel @default(PUBLIC)
+
+  // Feature flags
+  allowComments Boolean @default(true)
+  allowDuet     Boolean @default(true)
+  allowStitch   Boolean @default(true)
+
+  // Music
+  musicId       String?
+  isOriginalSound Boolean @default(false)
+
+  // Denormalized counters
+  viewsCount    Int @default(0)
+  likesCount    Int @default(0)
+  commentsCount Int @default(0)
+  sharesCount   Int @default(0)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Relations
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  music     Music?          @relation(fields: [musicId], references: [id])
+  hashtags  VideoHashtag[]
+  comments  Comment[]
+  likes     Like[]
+  views     VideoView[]
+  reports   Report[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([privacyLevel])
+  @@index([createdAt])
+  @@index([likesCount])
+  @@index([viewsCount])
+}
+
+model Comment {
+  id        String  @id @default(cuid())
+  userId    String
+  videoId   String
+  parentId  String? // null = top-level, set = reply
+  content   String  @db.VarChar(500)
+  likesCount Int    @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video    Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  parent   Comment?  @relation("Replies", fields: [parentId], references: [id])
+  replies  Comment[] @relation("Replies")
+  likes    Like[]
+
+  @@index([videoId])
+  @@index([userId])
+  @@index([parentId])
+  @@index([createdAt])
+}
+
+model Like {
+  id        String  @id @default(cuid())
+  userId    String
+  videoId   String?
+  commentId String?
+
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  video   Video?   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  comment Comment? @relation(fields: [commentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, videoId])
+  @@unique([userId, commentId])
+  @@index([userId])
+  @@index([videoId])
+}
+
+model Follow {
+  id          String       @id @default(cuid())
+  followerId  String
+  followingId String
+  status      FollowStatus @default(ACCEPTED)
+
+  createdAt DateTime @default(now())
+
+  follower  User @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
+  following User @relation("Following", fields: [followingId], references: [id], onDelete: Cascade)
+
+  @@unique([followerId, followingId])
+  @@index([followerId])
+  @@index([followingId])
+  @@index([status])
+}
+
+model Hashtag {
+  id          String  @id @default(cuid())
+  name        String  @unique @db.VarChar(100)
+  description String? @db.VarChar(300)
+  coverUrl    String?
+  videosCount Int     @default(0)
+  viewsCount  BigInt  @default(0)
+
+  createdAt DateTime @default(now())
+
+  videos VideoHashtag[]
+
+  @@index([name])
+  @@index([videosCount])
+}
+
+model VideoHashtag {
+  videoId   String
+  hashtagId String
+
+  video   Video   @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  hashtag Hashtag @relation(fields: [hashtagId], references: [id], onDelete: Cascade)
+
+  @@id([videoId, hashtagId])
+}
+
+model Music {
+  id        String  @id @default(cuid())
+  title     String  @db.VarChar(150)
+  artist    String  @db.VarChar(100)
+  audioUrl  String
+  coverUrl  String?
+  duration  Float
+  usageCount Int    @default(0)
+
+  createdAt DateTime @default(now())
+
+  videos Video[]
+
+  @@index([title])
+  @@index([artist])
+}
+
+model Message {
+  id             String  @id @default(cuid())
+  conversationId String
+  senderId       String
+  content        String? @db.VarChar(2000)
+  mediaUrl       String?
+  isDeleted      Boolean @default(false)
+  readAt         DateTime?
+
+  createdAt DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender       User         @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+}
+
+model Conversation {
+  id            String           @id @default(cuid())
+  type          ConversationType @default(DIRECT)
+  name          String?          @db.VarChar(100)
+  lastMessageAt DateTime?
+
+  createdAt DateTime @default(now())
+
+  messages     Message[]
+  participants ConversationParticipant[]
+
+  @@index([lastMessageAt])
+}
+
+model ConversationParticipant {
+  conversationId String
+  userId         String
+  joinedAt       DateTime @default(now())
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+}
+
+model Notification {
+  id            String           @id @default(cuid())
+  userId        String           // recipient
+  actorId       String?          // who triggered the action
+  type          NotificationType
+  referenceId   String?          // videoId, commentId, etc.
+  referenceType String?          // "video", "comment", "user"
+  message       String?          @db.VarChar(200)
+  isRead        Boolean          @default(false)
+
+  createdAt DateTime @default(now())
+
+  user  User  @relation("NotificationTarget", fields: [userId], references: [id], onDelete: Cascade)
+  actor User? @relation("NotificationActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model Report {
+  id           String           @id @default(cuid())
+  reporterId   String
+  targetId     String
+  targetType   ReportTargetType
+  reason       ReportReason
+  description  String?          @db.VarChar(500)
+  status       ReportStatus     @default(PENDING)
+  reviewedById String?
+  resolution   String?          @db.VarChar(300)
+
+  createdAt  DateTime  @default(now())
+  resolvedAt DateTime?
+
+  reporter   User  @relation("Reporter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewedBy User? @relation("ReviewedBy", fields: [reviewedById], references: [id])
+  video      Video? @relation(fields: [targetId], references: [id], map: "Report_video_fk")
+
+  @@index([targetId])
+  @@index([status])
+  @@index([reporterId])
+}
+
+model UserBlock {
+  id        String @id @default(cuid())
+  blockerId String
+  blockedId String
+
+  createdAt DateTime @default(now())
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId])
+}
+
+model VideoView {
+  id             String  @id @default(cuid())
+  videoId        String
+  userId         String?
+  watchDuration  Float   @default(0) // seconds watched
+  completionRate Float   @default(0) // 0.0 - 1.0
+
+  createdAt DateTime @default(now())
+
+  video Video @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([videoId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model UserInterest {
+  id        String @id @default(cuid())
+  userId    String
+  category  String @db.VarChar(50)
+  score     Float  @default(0) // higher = stronger interest
+
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category])
+  @@index([userId])
+}
+
+model DeviceToken {
+  id        String @id @default(cuid())
+  userId    String
+  token     String @unique
+  platform  String @db.VarChar(10) // "ios", "android", "web"
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
