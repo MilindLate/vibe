@@ -44,7 +44,7 @@ export default function VideoFeed({ type }: VideoFeedProps) {
   }, [inView, hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   return (
-    <div className="relative h-full">
+    <div className="relative h-full overflow-hidden">
       {/* Top tab bar — pinned absolutely over the feed */}
       <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center pt-3 pb-2 pointer-events-none">
         <div className="flex items-center gap-6 pointer-events-auto">

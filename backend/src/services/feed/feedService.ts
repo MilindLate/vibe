@@ -46,7 +46,6 @@ export class FeedService {
 
   /** Generate For You Page feed for a user */
   private async generateFYP(userId: string | undefined, count: number) {
-    const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);
     let watchedIds: string[] = [];
 
     if (userId) {
@@ -54,20 +53,43 @@ export class FeedService {
       watchedIds = await redis.smembers(`watched:${userId}`);
     }
 
-    const videos = await prisma.video.findMany({
-      where: {
-        status: 'ACTIVE',
-        privacyLevel: 'PUBLIC',
-        createdAt: { gte: since },
-        id: { notIn: watchedIds.slice(0, 200) },
-      },
+    // Try recent (7 days) first, fall back to all-time so seeded/older content always shows
+    const since7d = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+    const baseWhere = {
+      status: 'ACTIVE' as const,
+      privacyLevel: 'PUBLIC' as const,
+      id: { notIn: watchedIds.slice(0, 200) },
+    };
+
+    let videos = await prisma.video.findMany({
+      where: { ...baseWhere, createdAt: { gte: since7d } },
       include: {
         user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
         hashtags: { include: { hashtag: { select: { name: true } } } },
         music: { select: { id: true, title: true, artist: true } },
       },
-      take: count * 3, // Over-fetch for diversity filtering
+      take: count * 3,
+      orderBy: { viewsCount: 'desc' },
     });
+
+    // If too few recent videos, fetch all-time pool and merge
+    if (videos.length < count) {
+      const allTime = await prisma.video.findMany({
+        where: baseWhere,
+        include: {
+          user: { select: { id: true, username: true, displayName: true, avatarUrl: true, isVerified: true } },
+          hashtags: { include: { hashtag: { select: { name: true } } } },
+          music: { select: { id: true, title: true, artist: true } },
+        },
+        take: count * 3,
+        orderBy: { viewsCount: 'desc' },
+      });
+      // Merge and deduplicate
+      const seen = new Set(videos.map((v) => v.id));
+      for (const v of allTime) {
+        if (!seen.has(v.id)) { seen.add(v.id); videos.push(v); }
+      }
+    }
 
     if (!videos.length) return [];
 

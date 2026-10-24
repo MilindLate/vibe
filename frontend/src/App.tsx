@@ -1,5 +1,5 @@
 // src/App.tsx
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from './context/AuthContext';
 import { Suspense, lazy } from 'react';
 import Sidebar from './components/common/Sidebar';
@@ -7,7 +7,7 @@ import BottomNav from './components/common/BottomNav';
 import Header from './components/common/Header';
 import { Loading } from './components/common/Loading';
 
-// Lazy-loaded pages for code splitting
+// Lazy-loaded pages
 const VideoFeed = lazy(() => import('./components/feed/VideoFeed'));
 const SearchPage = lazy(() => import('./components/search/SearchPage'));
 const UploadPage = lazy(() => import('./components/upload/UploadPage'));
@@ -37,18 +37,27 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <AdminLayout>{children}</AdminLayout>;
 }
 
+// Feed pages get NO header and NO bottom padding so they're truly full-screen
+const FEED_PATHS = ['/', '/following'];
+
 function AppLayout({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  const isFeed = FEED_PATHS.includes(location.pathname);
+
   return (
-    <div className="flex h-screen bg-black">
-      {/* Desktop sidebar */}
+    <div className="flex h-screen bg-black overflow-hidden">
+      {/* Desktop sidebar — always shown */}
       <aside className="hidden md:flex flex-col w-64 border-r border-vibe-border flex-shrink-0">
         <Sidebar />
       </aside>
 
-      {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden">
-        <Header />
-        <div className="flex-1 overflow-hidden">
+      {/* Main content column */}
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Header — hidden on feed pages so video fills full height */}
+        {!isFeed && <Header />}
+
+        {/* Content area — on feed pages takes full remaining height */}
+        <div className={`flex-1 min-h-0 ${isFeed ? 'overflow-hidden' : 'overflow-y-auto'}`}>
           {children}
         </div>
       </main>
